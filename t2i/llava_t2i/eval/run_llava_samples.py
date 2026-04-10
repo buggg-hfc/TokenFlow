@@ -33,7 +33,7 @@ multi_step_infer_strategy = {
 def eval_model(args):
     cur_output_path = os.path.join(args.output_path, f'loop{args.loop}_cfg{args.cfg}')
     os.makedirs(cur_output_path, exist_ok=True)
-    repeat = 4
+    repeat = args.repeat
     prompts = [
         "A realistic landscape shot of theNorthern Lights dancing over asnowy mountain range in Iceland.",
         "A picture of the head of a browncow wearing a halter.",
@@ -128,6 +128,7 @@ if __name__ == "__main__":
     parser.add_argument("--mixed_precision", type=str, default='bf16')
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--g_seed", type=int, default=None)
+    parser.add_argument("--repeat", type=int, default=4)
     args = parser.parse_args()
 
     eval_model(args)
