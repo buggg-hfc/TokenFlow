@@ -1,11 +1,32 @@
 #!/bin/bash
 
-
+# -----------------------------------------------------------------
+# Paths - modify these for your environment
+# -----------------------------------------------------------------
 export MODEL_LOG_PATH=./checkpoints/inital-try
-export DATA_PATH="your/data/path"
-export VISION_TOWER_CKPT="../pretrained_ckpts/tokenflow_clipb_32k_enhanced.pt"
+
+# DATA_PATH is currently unused by ExampleDataset (which loads
+# sayakpaul/coco-30-val-2014 from HuggingFace automatically).
+# Set it to any non-empty string or your own data path.
+export DATA_PATH="unused"
+
+export VISION_TOWER_CKPT="/home/weight/TokenFlow/tokenflow_clipb_32k_enhanced.pt"
+
+# Choose base LLM: Llama-2-7B (default) or TinyLlama-1.1B (lighter)
 # export MODEL_PATH="TinyLlama/TinyLlama_v1.1"
-export MODEL_PATH="meta-llama/Llama-2-7b-hf"
+export MODEL_PATH="/path/to/Llama-2-7b-hf"   # set to local path
+
+# -----------------------------------------------------------------
+# Bypass SSL certificate verification for HuggingFace dataset download
+# (needed in environments with self-signed proxy certificates)
+# -----------------------------------------------------------------
+export CURL_CA_BUNDLE=""
+export REQUESTS_CA_BUNDLE=""
+export HF_DATASETS_TRUST_REMOTE_CODE=1
+
+# Ensure llava_t2i package is importable
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH}"
 
 deepspeed  \
   llava_t2i/train/train_plain.py \
@@ -44,4 +65,4 @@ deepspeed  \
     --gradient_checkpointing True \
     --dataloader_num_workers 8 \
     --lazy_preprocess True \
-    --report_to wandb
+    --report_to none
