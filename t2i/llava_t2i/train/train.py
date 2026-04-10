@@ -95,6 +95,12 @@ class TrainingArguments(transformers.TrainingArguments):
     group_by_modality_length: bool = field(default=False)
     output_hidden_states=True
 
+    # QLoRA options
+    use_qlora: bool = field(default=False, metadata={"help": "Enable 4-bit QLoRA training"})
+    lora_r: int = field(default=64, metadata={"help": "LoRA rank"})
+    lora_alpha: int = field(default=16, metadata={"help": "LoRA alpha"})
+    lora_dropout: float = field(default=0.05, metadata={"help": "LoRA dropout"})
+
 
 def maybe_zero_3(param, ignore_status=False, name=None):
     from deepspeed import zero
@@ -150,7 +156,18 @@ def train(attn_implementation=None):
     local_rank = training_args.local_rank
 
     bnb_model_from_pretrained_args = {}
-    
+
+    # QLoRA: 4-bit quantization for training
+    if getattr(training_args, 'use_qlora', False):
+        from transformers import BitsAndBytesConfig
+        bnb_model_from_pretrained_args['quantization_config'] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type='nf4',
+        )
+        bnb_model_from_pretrained_args['device_map'] = {"": training_args.local_rank}
+
     if model_args.vision_tower is not None:
         if 'mpt' in model_args.model_name_or_path:
             config = transformers.AutoConfig.from_pretrained(model_args.model_name_or_path, trust_remote_code=True)
@@ -180,6 +197,24 @@ def train(attn_implementation=None):
         )
     model.config.use_cache = False
     model.config.output_hidden_states = model_args.output_hidden_states
+
+    # QLoRA: prepare model and attach LoRA adapters
+    if getattr(training_args, 'use_qlora', False):
+        from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+        model = prepare_model_for_kbit_training(
+            model, use_gradient_checkpointing=training_args.gradient_checkpointing
+        )
+        lora_config = LoraConfig(
+            r=getattr(training_args, 'lora_r', 64),
+            lora_alpha=getattr(training_args, 'lora_alpha', 16),
+            target_modules=["q_proj", "v_proj", "k_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"],
+            lora_dropout=getattr(training_args, 'lora_dropout', 0.05),
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+        model = get_peft_model(model, lora_config)
+        model.print_trainable_parameters()
 
     if model_args.freeze_backbone:
         model.model.requires_grad_(False)

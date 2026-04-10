@@ -33,11 +33,21 @@ def load_model(args):
     ptdtype = {"none": torch.float32, "bf16": torch.bfloat16, "fp16": torch.float16}[
         args.mixed_precision
     ]
-    model = LlavaLlamaForCausalLM.from_pretrained(
-        args.model_path,
-        attn_implementation="eager",
-        mm_vision_tower=args.tokenizer_path,
-    )
+    load_kwargs = dict(attn_implementation="eager", mm_vision_tower=args.tokenizer_path)
+    if args.load_4bit:
+        from transformers import BitsAndBytesConfig
+        load_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+        load_kwargs["device_map"] = "auto"
+    elif args.load_8bit:
+        load_kwargs["load_in_8bit"] = True
+        load_kwargs["device_map"] = "auto"
+
+    model = LlavaLlamaForCausalLM.from_pretrained(args.model_path, **load_kwargs)
     model = model.eval().to(ptdtype).cuda()
     model.get_vision_tower().to(ptdtype)
     model.config.mm_vision_vq_type = str(model.config.mm_vision_vq_type)
@@ -167,5 +177,7 @@ if __name__ == "__main__":
                         help="Number of images to generate per prompt (default 4, same as GenEval paper)")
     parser.add_argument("--g_seed", type=int, default=None,
                         help="Random seed for reproducibility")
+    parser.add_argument("--load_4bit", action="store_true", help="Load model in 4-bit (NF4) quantization")
+    parser.add_argument("--load_8bit", action="store_true", help="Load model in 8-bit quantization")
     args = parser.parse_args()
     main(args)
