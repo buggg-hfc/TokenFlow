@@ -1,5 +1,6 @@
 import hashlib
 import os
+import ssl
 import urllib
 import warnings
 from typing import Any, Union, List
@@ -55,7 +56,10 @@ def _download(url: str, root: str):
         else:
             warnings.warn(f"{download_target} exists, but the SHA256 checksum does not match; re-downloading the file")
 
-    with urllib.request.urlopen(url) as source, open(download_target, "wb") as output:
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+    with urllib.request.urlopen(url, context=ssl_ctx) as source, open(download_target, "wb") as output:
         with tqdm(total=int(source.info().get("Content-Length")), ncols=80, unit='iB', unit_scale=True, unit_divisor=1024) as loop:
             while True:
                 buffer = source.read(8192)
