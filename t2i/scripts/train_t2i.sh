@@ -24,12 +24,15 @@ export CURL_CA_BUNDLE=""
 export REQUESTS_CA_BUNDLE=""
 export HF_DATASETS_TRUST_REMOTE_CODE=1
 
-# Ensure llava_t2i package is importable
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH}"
+# Ensure llava_t2i package is importable regardless of where this script is called from
+T2I_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="${T2I_DIR}:${PYTHONPATH}"
+
+# Always run from the t2i/ root so relative paths (scripts/, llava_t2i/) work correctly
+cd "${T2I_DIR}"
 
 deepspeed  \
-  llava_t2i/train/train_plain.py \
+  "${T2I_DIR}/llava_t2i/train/train_plain.py" \
     --deepspeed ./scripts/zero3.json \
     --model_name_or_path $MODEL_PATH \
     --version plain_img \
