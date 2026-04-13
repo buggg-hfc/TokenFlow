@@ -71,6 +71,16 @@ def eval_model(args):
         load_kwargs['device_map'] = 'auto'
 
     model = LlavaLlamaForCausalLM.from_pretrained(args.model_path, **load_kwargs)
+
+    # Custom FP4 quantization (applied after loading, before eval)
+    if getattr(args, 'quant_method', None):
+        from llava_t2i.quantization import apply_quantization, QuantizationConfig
+        quant_cfg = QuantizationConfig(
+            method=args.quant_method,
+            fake_quant=False,   # inference: real quant, dequant on forward
+        )
+        apply_quantization(model, quant_cfg)
+
     model = model.eval()
     model=model.to(ptdtype).cuda()
     vision_tower = model.get_vision_tower()
@@ -142,6 +152,11 @@ if __name__ == "__main__":
     parser.add_argument("--repeat", type=int, default=4)
     parser.add_argument("--load_4bit", action="store_true", help="Load model in 4-bit (NF4) quantization")
     parser.add_argument("--load_8bit", action="store_true", help="Load model in 8-bit quantization")
+    # Custom quantization (self-implemented MXFP4 / NVFP4 / HiF4)
+    parser.add_argument("--quant_method", type=str, default=None,
+                        choices=["mxfp4", "nvfp4", "hif4"],
+                        help="Apply custom FP4 quantization to the LLM weights "
+                             "after loading (fake_quant=False inference mode).")
     args = parser.parse_args()
 
     eval_model(args)

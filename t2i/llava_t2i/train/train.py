@@ -101,6 +101,17 @@ class TrainingArguments(transformers.TrainingArguments):
     lora_alpha: int = field(default=16, metadata={"help": "LoRA alpha"})
     lora_dropout: float = field(default=0.05, metadata={"help": "LoRA dropout"})
 
+    # Custom FP4 quantization-aware training
+    quant_method: Optional[str] = field(
+        default=None,
+        metadata={"help": "Custom FP4 quant method: mxfp4 | nvfp4 | hif4. "
+                           "Enables fake-quant (QAT) on the LLM Linear layers."}
+    )
+    quant_act: bool = field(
+        default=False,
+        metadata={"help": "Also quantize activations (input to Linear) during QAT."}
+    )
+
 
 def maybe_zero_3(param, ignore_status=False, name=None):
     from deepspeed import zero
@@ -215,6 +226,18 @@ def train(attn_implementation=None):
         )
         model = get_peft_model(model, lora_config)
         model.print_trainable_parameters()
+
+    # Custom FP4 Quantization-Aware Training (QAT)
+    if getattr(training_args, 'quant_method', None):
+        from llava_t2i.quantization import apply_quantization, QuantizationConfig
+        quant_cfg = QuantizationConfig(
+            method=training_args.quant_method,
+            fake_quant=True,    # training: fake-quant with STE
+            act_quant=getattr(training_args, 'quant_act', False),
+        )
+        apply_quantization(model, quant_cfg)
+        rank0_print(f"[QAT] Applied {training_args.quant_method} fake-quantization "
+                    f"(act_quant={quant_cfg.act_quant})")
 
     if model_args.freeze_backbone:
         model.model.requires_grad_(False)
