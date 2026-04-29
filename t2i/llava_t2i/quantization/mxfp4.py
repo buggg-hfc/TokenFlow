@@ -31,7 +31,7 @@ def _nearest_e2m1(x: torch.Tensor) -> torch.Tensor:
     # x: (...,)  →  codes: (...,) in [0,7]
     diff = (x.abs().unsqueeze(-1) - lut).abs()   # (..., 8)
     codes = diff.argmin(dim=-1)                   # (...,)
-    return lut[codes] * x.sign().clamp(min=0)     # restore sign, 0 stays 0
+    return lut[codes] * x.sign()                   # restore sign (sign(0)=0, lut[0]=0 → stays 0)
 
 
 class MXFP4Quantizer(BaseQuantizer):

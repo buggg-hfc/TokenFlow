@@ -82,7 +82,9 @@ def eval_model(args):
         apply_quantization(model, quant_cfg)
 
     model = model.eval()
-    model=model.to(ptdtype).cuda()
+    # bitsandbytes 4/8-bit models use device_map="auto" and do not support .to()/.cuda()
+    if not (args.load_4bit or args.load_8bit):
+        model = model.to(ptdtype).cuda()
     vision_tower = model.get_vision_tower()
     vision_tower.to(ptdtype)
 

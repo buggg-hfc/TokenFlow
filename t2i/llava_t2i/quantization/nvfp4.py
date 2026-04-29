@@ -34,7 +34,7 @@ def _nearest_e2m1(x: torch.Tensor) -> torch.Tensor:
     lut = _E2M1_VALUES.to(x.device)
     diff = (x.abs().unsqueeze(-1) - lut).abs()   # (..., 8)
     codes = diff.argmin(dim=-1)                   # (...,)
-    return lut[codes] * x.sign().clamp(min=0)
+    return lut[codes] * x.sign()
 
 
 def _to_fp8_e4m3(x: torch.Tensor) -> torch.Tensor:

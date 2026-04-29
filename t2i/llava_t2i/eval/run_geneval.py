@@ -48,7 +48,10 @@ def load_model(args):
         load_kwargs["device_map"] = "auto"
 
     model = LlavaLlamaForCausalLM.from_pretrained(args.model_path, **load_kwargs)
-    model = model.eval().to(ptdtype).cuda()
+    model = model.eval()
+    # bitsandbytes 4/8-bit models use device_map="auto" and do not support .to()/.cuda()
+    if not (args.load_4bit or args.load_8bit):
+        model = model.to(ptdtype).cuda()
     model.get_vision_tower().to(ptdtype)
     model.config.mm_vision_vq_type = str(model.config.mm_vision_vq_type)
     assert getattr(model.config, "mm_use_vq_token", False)
