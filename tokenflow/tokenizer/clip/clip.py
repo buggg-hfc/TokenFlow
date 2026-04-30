@@ -3,6 +3,7 @@ import os
 import ssl
 import urllib
 import warnings
+from contextlib import nullcontext
 from typing import Any, Union, List
 from pkg_resources import packaging
 
@@ -13,6 +14,11 @@ from tqdm import tqdm
 
 from .model import build_model, clip_model, VisionTransformer
 from .simple_tokenizer import SimpleTokenizer as _Tokenizer
+
+try:
+    import deepspeed
+except ImportError:
+    deepspeed = None
 
 try:
     from torchvision.transforms import InterpolationMode
@@ -253,14 +259,19 @@ def load_clip_vision(name: str, download_root: str = None):
     embed_dim = state_dict["text_projection"].shape[1]
 
     vision_heads = vision_width // 64
-    visual = VisionTransformer(
-        input_resolution=image_resolution,
-        patch_size=vision_patch_size,
-        width=vision_width,
-        layers=vision_layers,
-        heads=vision_heads,
-        output_dim=embed_dim
-    )
+    zero_init_ctx = nullcontext()
+    if deepspeed is not None and hasattr(deepspeed, "zero") and hasattr(deepspeed.zero, "Init"):
+        zero_init_ctx = deepspeed.zero.Init(enabled=False)
+
+    with zero_init_ctx:
+        visual = VisionTransformer(
+            input_resolution=image_resolution,
+            patch_size=vision_patch_size,
+            width=vision_width,
+            layers=vision_layers,
+            heads=vision_heads,
+            output_dim=embed_dim
+        )
 
     for key in ["input_resolution", "context_length", "vocab_size"]:
         if key in state_dict:
