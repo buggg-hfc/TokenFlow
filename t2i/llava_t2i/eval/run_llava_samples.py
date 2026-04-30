@@ -33,7 +33,7 @@ multi_step_infer_strategy = {
 def eval_model(args):
     cur_output_path = os.path.join(args.output_path, f'loop{args.loop}_cfg{args.cfg}')
     os.makedirs(cur_output_path, exist_ok=True)
-    repeat = 4
+    repeat = args.repeat
     prompts = [
         "A realistic landscape shot of theNorthern Lights dancing over asnowy mountain range in Iceland.",
         "A picture of the head of a browncow wearing a halter.",
@@ -55,13 +55,36 @@ def eval_model(args):
         print("No GPU available. Using CPU instead.")
 
     ptdtype = {'none': torch.float32, 'bf16': torch.bfloat16, 'fp16': torch.float16}[args.mixed_precision]
-    model = LlavaLlamaForCausalLM.from_pretrained(
-                args.model_path,
-                attn_implementation='eager',
-                mm_vision_tower=args.tokenizer_path
-            )
+
+    load_kwargs = dict(attn_implementation='eager', mm_vision_tower=args.tokenizer_path)
+    if args.load_4bit:
+        from transformers import BitsAndBytesConfig
+        load_kwargs['quantization_config'] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type='nf4',
+        )
+        load_kwargs['device_map'] = 'auto'
+    elif args.load_8bit:
+        load_kwargs['load_in_8bit'] = True
+        load_kwargs['device_map'] = 'auto'
+
+    model = LlavaLlamaForCausalLM.from_pretrained(args.model_path, **load_kwargs)
+
+    # Custom FP4 quantization (applied after loading, before eval)
+    if getattr(args, 'quant_method', None):
+        from llava_t2i.quantization import apply_quantization, QuantizationConfig
+        quant_cfg = QuantizationConfig(
+            method=args.quant_method,
+            fake_quant=False,   # inference: real quant, dequant on forward
+        )
+        apply_quantization(model, quant_cfg)
+
     model = model.eval()
-    model=model.to(ptdtype).cuda()
+    # bitsandbytes 4/8-bit models use device_map="auto" and do not support .to()/.cuda()
+    if not (args.load_4bit or args.load_8bit):
+        model = model.to(ptdtype).cuda()
     vision_tower = model.get_vision_tower()
     vision_tower.to(ptdtype)
 
@@ -128,6 +151,14 @@ if __name__ == "__main__":
     parser.add_argument("--mixed_precision", type=str, default='bf16')
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--g_seed", type=int, default=None)
+    parser.add_argument("--repeat", type=int, default=4)
+    parser.add_argument("--load_4bit", action="store_true", help="Load model in 4-bit (NF4) quantization")
+    parser.add_argument("--load_8bit", action="store_true", help="Load model in 8-bit quantization")
+    # Custom quantization (self-implemented MXFP4 / NVFP4 / HiF4)
+    parser.add_argument("--quant_method", type=str, default=None,
+                        choices=["mxfp4", "nvfp4", "hif4"],
+                        help="Apply custom FP4 quantization to the LLM weights "
+                             "after loading (fake_quant=False inference mode).")
     args = parser.parse_args()
 
     eval_model(args)

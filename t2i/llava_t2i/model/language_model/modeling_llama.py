@@ -50,9 +50,10 @@ from packaging import version
 
 transformers_version = pkg_resources.get_distribution("transformers").version
 
-# 检查transformers版本是否大于一个特定的版本
-if version.parse(transformers_version) != version.parse("4.43.4"):
-    print("transformers version is not 4.43.4, the model is only checked for this version")
+# Originally required transformers==4.43.4 exactly.
+# Relaxed to allow Llama-3.x models (tested on 4.43.4; Llama-3.2 requires >=4.45).
+if version.parse(transformers_version) < version.parse("4.43.4"):
+    print(f"transformers {transformers_version} is too old; >= 4.43.4 required")
     exit()
 
 logger = logging.get_logger(__name__)

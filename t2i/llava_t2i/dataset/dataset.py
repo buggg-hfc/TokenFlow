@@ -96,7 +96,12 @@ class ExampleDataset(Dataset):
                  training=True,
                  split='train'):
 
-        self.ds = load_dataset("sayakpaul/coco-30-val-2014", split=split)
+        # Load dataset: use local path if data_path points to a local directory,
+        # otherwise fall back to HuggingFace Hub download.
+        if data_path and data_path != "unused" and os.path.isdir(data_path):
+            self.ds = load_dataset(data_path, split=split)
+        else:
+            self.ds = load_dataset("sayakpaul/coco-30-val-2014", split=split)
 
         self.transform = transforms.Compose([
             transforms.Lambda(lambda pil_image: center_crop_arr(pil_image, image_size)),

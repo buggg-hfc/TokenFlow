@@ -3,7 +3,9 @@
 # -----------------------------------------------------------------
 # Paths - modify these for your environment
 # -----------------------------------------------------------------
-export MODEL_LOG_PATH=./checkpoints/inital-try
+# 2-GPU variant: effective batch size kept at 64 via gradient accumulation
+# per_device(8) × num_gpus(2) × grad_accum(4) = 64
+export MODEL_LOG_PATH=./checkpoints/inital-try-2gpu
 
 # DATA_PATH is currently unused by ExampleDataset (which loads
 # sayakpaul/coco-30-val-2014 from HuggingFace automatically).
@@ -33,7 +35,7 @@ cd "${T2I_DIR}"
 
 deepspeed  \
   "${T2I_DIR}/llava_t2i/train/train_plain.py" \
-    --deepspeed ./scripts/zero3.json \
+    --deepspeed ./scripts/zero3_offload.json \
     --model_name_or_path $MODEL_PATH \
     --version plain_img \
     --data_path $DATA_PATH \
@@ -48,9 +50,9 @@ deepspeed  \
     --bf16 True \
     --output_dir $MODEL_LOG_PATH \
     --max_grad_norm 0.5 \
-    --per_device_train_batch_size 16 \
-    --per_device_eval_batch_size 16 \
-    --gradient_accumulation_steps 1 \
+    --per_device_train_batch_size 8 \
+    --per_device_eval_batch_size 8 \
+    --gradient_accumulation_steps 4 \
     --evaluation_strategy "no" \
     --save_strategy "steps" \
     --save_steps 1000 \
