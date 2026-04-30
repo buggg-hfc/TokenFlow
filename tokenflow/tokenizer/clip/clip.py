@@ -243,8 +243,22 @@ def load_clip_vision(name: str, download_root: str = None):
     else:
         raise RuntimeError(f"Model {name} not found; available models = {available_models()}")
     
-    model = torch.jit.load(model_path, "cpu").eval()
-    state_dict = model.state_dict()
+    try:
+        import deepspeed
+        zero_init_ctx = deepspeed.zero.Init(enabled=False)
+    except ImportError:
+        deepspeed = None
+        zero_init_ctx = None
+
+    try:
+        if zero_init_ctx is None:
+            model = torch.jit.load(model_path, "cpu").eval()
+        else:
+            with zero_init_ctx:
+                model = torch.jit.load(model_path, "cpu").eval()
+        state_dict = model.state_dict()
+    except RuntimeError:
+        state_dict = torch.load(model_path, map_location="cpu")
     vision_width = state_dict["visual.conv1.weight"].shape[0]
     vision_layers = len([k for k in state_dict.keys() if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")])
     vision_patch_size = state_dict["visual.conv1.weight"].shape[-1]
@@ -253,12 +267,6 @@ def load_clip_vision(name: str, download_root: str = None):
     embed_dim = state_dict["text_projection"].shape[1]
 
     vision_heads = vision_width // 64
-    try:
-        import deepspeed
-        zero_init_ctx = deepspeed.zero.Init(enabled=False)
-    except ImportError:
-        deepspeed = None
-        zero_init_ctx = None
 
     if zero_init_ctx is None:
         visual = VisionTransformer(
