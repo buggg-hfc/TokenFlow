@@ -243,8 +243,22 @@ def load_clip_vision(name: str, download_root: str = None):
     else:
         raise RuntimeError(f"Model {name} not found; available models = {available_models()}")
     
-    model = torch.jit.load(model_path, "cpu").eval()
-    state_dict = model.state_dict()
+    try:
+        import deepspeed
+        zero_init_ctx = deepspeed.zero.Init(enabled=False)
+    except ImportError:
+        deepspeed = None
+        zero_init_ctx = None
+
+    try:
+        if zero_init_ctx is None:
+            model = torch.jit.load(model_path, "cpu").eval()
+        else:
+            with zero_init_ctx:
+                model = torch.jit.load(model_path, "cpu").eval()
+        state_dict = model.state_dict()
+    except RuntimeError:
+        state_dict = torch.load(model_path, map_location="cpu")
     vision_width = state_dict["visual.conv1.weight"].shape[0]
     vision_layers = len([k for k in state_dict.keys() if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")])
     vision_patch_size = state_dict["visual.conv1.weight"].shape[-1]
@@ -253,14 +267,26 @@ def load_clip_vision(name: str, download_root: str = None):
     embed_dim = state_dict["text_projection"].shape[1]
 
     vision_heads = vision_width // 64
-    visual = VisionTransformer(
-        input_resolution=image_resolution,
-        patch_size=vision_patch_size,
-        width=vision_width,
-        layers=vision_layers,
-        heads=vision_heads,
-        output_dim=embed_dim
-    )
+
+    if zero_init_ctx is None:
+        visual = VisionTransformer(
+            input_resolution=image_resolution,
+            patch_size=vision_patch_size,
+            width=vision_width,
+            layers=vision_layers,
+            heads=vision_heads,
+            output_dim=embed_dim
+        )
+    else:
+        with zero_init_ctx:
+            visual = VisionTransformer(
+                input_resolution=image_resolution,
+                patch_size=vision_patch_size,
+                width=vision_width,
+                layers=vision_layers,
+                heads=vision_heads,
+                output_dim=embed_dim
+            )
 
     for key in ["input_resolution", "context_length", "vocab_size"]:
         if key in state_dict:
@@ -271,7 +297,11 @@ def load_clip_vision(name: str, download_root: str = None):
         if key.startswith('visual.'):
             modified_state_key[key[7:]] = state_dict[key]
 
-    visual.load_state_dict(modified_state_key)
+    if deepspeed is not None and hasattr(deepspeed, "zero") and hasattr(deepspeed.zero, "GatheredParameters"):
+        with deepspeed.zero.GatheredParameters(list(visual.parameters()), modifier_rank=None):
+            visual.load_state_dict(modified_state_key)
+    else:
+        visual.load_state_dict(modified_state_key)
     del visual.proj
 
     return visual
