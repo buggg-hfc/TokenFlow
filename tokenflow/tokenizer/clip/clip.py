@@ -3,7 +3,6 @@ import os
 import ssl
 import urllib
 import warnings
-from contextlib import nullcontext
 from typing import Any, Union, List
 from pkg_resources import packaging
 
@@ -14,11 +13,6 @@ from tqdm import tqdm
 
 from .model import build_model, clip_model, VisionTransformer
 from .simple_tokenizer import SimpleTokenizer as _Tokenizer
-
-try:
-    import deepspeed
-except ImportError:
-    deepspeed = None
 
 try:
     from torchvision.transforms import InterpolationMode
@@ -259,11 +253,14 @@ def load_clip_vision(name: str, download_root: str = None):
     embed_dim = state_dict["text_projection"].shape[1]
 
     vision_heads = vision_width // 64
-    zero_init_ctx = nullcontext()
-    if deepspeed is not None and hasattr(deepspeed, "zero") and hasattr(deepspeed.zero, "Init"):
+    try:
+        import deepspeed
         zero_init_ctx = deepspeed.zero.Init(enabled=False)
+    except ImportError:
+        deepspeed = None
+        zero_init_ctx = None
 
-    with zero_init_ctx:
+    if zero_init_ctx is None:
         visual = VisionTransformer(
             input_resolution=image_resolution,
             patch_size=vision_patch_size,
@@ -272,6 +269,16 @@ def load_clip_vision(name: str, download_root: str = None):
             heads=vision_heads,
             output_dim=embed_dim
         )
+    else:
+        with zero_init_ctx:
+            visual = VisionTransformer(
+                input_resolution=image_resolution,
+                patch_size=vision_patch_size,
+                width=vision_width,
+                layers=vision_layers,
+                heads=vision_heads,
+                output_dim=embed_dim
+            )
 
     for key in ["input_resolution", "context_length", "vocab_size"]:
         if key in state_dict:
@@ -282,7 +289,11 @@ def load_clip_vision(name: str, download_root: str = None):
         if key.startswith('visual.'):
             modified_state_key[key[7:]] = state_dict[key]
 
-    visual.load_state_dict(modified_state_key)
+    if deepspeed is not None and hasattr(deepspeed, "zero") and hasattr(deepspeed.zero, "GatheredParameters"):
+        with deepspeed.zero.GatheredParameters(list(visual.parameters()), modifier_rank=None):
+            visual.load_state_dict(modified_state_key)
+    else:
+        visual.load_state_dict(modified_state_key)
     del visual.proj
 
     return visual
