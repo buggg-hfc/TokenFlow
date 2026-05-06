@@ -80,6 +80,13 @@ def main():
     print(f"[4/4] Saving merged model to {args.output_dir} ...")
     os.makedirs(args.output_dir, exist_ok=True)
 
+    # Normalize non-JSON-serializable config fields before saving.
+    # VQType is an enum; store only its name string so config.json is valid.
+    if hasattr(model.config, "mm_vision_vq_type"):
+        vq = model.config.mm_vision_vq_type
+        if not isinstance(vq, str):
+            model.config.mm_vision_vq_type = vq.name if hasattr(vq, "name") else str(vq)
+
     model.save_pretrained(args.output_dir)
 
     # Copy tokenizer files from base model
